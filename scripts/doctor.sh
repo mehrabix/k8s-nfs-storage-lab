@@ -74,17 +74,21 @@ if [ -z "$msg" ]; then
   ok "the kubelet mounted an NFS volume (or gave up without a mount error)"
   info "no FailedMount event was produced for an unresolvable server, which is"
   info "unusual - run the lab and watch the Pod events if anything looks odd."
-elif printf '%s' "$msg" | grep -Eq 'Resource temporarily unavailable|failed to apply fstab options|Protocol not supported'; then
+elif printf '%s' "$msg" | grep -Eq \
+  'Resource temporarily unavailable|failed to apply fstab options|Protocol not supported|helper program|mount\.nfs: (No such file or directory|not found)|executable file not found'; then
   no "the kubelet cannot mount NFS on this node"
-  info "$(printf '%s' "$msg" | head -1)"
+  info "$(printf '%s' "$msg" | sed -n '1p')"
   printf '\n'
-  info "This is the node's userspace NFS stack, not your manifests. On a"
-  info "minikube 'docker' node it usually means the nfs-utils shipped in the"
-  info "node image is incompatible with the host kernel. Options:"
-  info "  * load the modules on the host: sudo modprobe nfs nfsv3 nfsv4 nfsd"
-  info "  * if that does not help, recreate the node image: minikube delete && minikube start"
-  info "  * or run the lab on a cluster whose nodes ship a working nfs-utils"
-  info "    (kind, k3s on a VM, or a managed cluster all work)"
+  info "This is the node's NFS userspace, not your manifests. Common causes:"
+  info "  * the nfs client modules are not loaded on the node's host"
+  info "      sudo modprobe nfs nfsv3 nfsv4 nfsd"
+  info "  * the node image has no nfs-utils at all (minimal images, e.g. kind)"
+  info "      docker exec <node> apt-get install -y nfs-common"
+  info "  * the node's nfs-utils is incompatible with its kernel"
+  info "      recreate the node, or run the lab where the two match"
+  info ""
+  info "A cluster with a working NFS client: a VM-backed node (k3s, kubeadm),"
+  info "minikube with a VM driver, or a managed cluster."
   status=1
 else
   ok "the node's NFS userspace works"

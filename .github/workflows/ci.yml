@@ -85,6 +85,15 @@ jobs:
       - name: load the NFS kernel modules
         run: sudo modprobe nfs nfsv3 nfsv4 nfsd
 
+      - name: give the kind node an NFS client
+        # kind's node image is minimal and ships no nfs-utils, so the kubelet
+        # has no mount.nfs to call. Real nodes have one; this puts the CI node
+        # on the same footing.
+        run: |
+          node="$(docker ps --filter 'name=nfs-lab-recovery-control-plane' --format '{{.Names}}')"
+          echo "kind node: ${node}"
+          docker exec "${node}" bash -c 'apt-get update -qq && apt-get install -y -qq nfs-common'
+
       - name: the kubelet must be able to mount NFS here
         run: make doctor
 
