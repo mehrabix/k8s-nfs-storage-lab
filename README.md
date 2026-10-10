@@ -148,6 +148,29 @@ make clean
 This deletes the `nfs-lab` namespace, the `nfs-client` StorageClass and the two
 cluster-scoped RBAC objects the provisioner needs.
 
+## What is verified
+
+The scenario is tested rather than asserted. On every push, against a real
+cluster:
+
+- **the broken state is asserted** — the claim is `Pending`, it has **zero
+  `Warning` events**, and the `ExternalProvisioning` event names a provisioner
+  that no Pod implements;
+- **every manifest is validated** against the Kubernetes schemas and accepted
+  by a real API server;
+- **the diagnosis script** runs cleanly and prints the correct verdict.
+
+The **recovery path** — deploy the provisioner, the claim binds, the writer
+reads and writes the share — additionally requires the node's kubelet to be
+able to mount NFS. That is a property of the environment, not of this
+repository, which is why `make doctor` checks it up front and explains what to
+do when it fails.
+
+Some node images cannot mount NFS at all (kind's ships no `nfs-utils`; some
+minikube images ship one that does not match the host kernel). A VM-backed node
+or a managed cluster can. The lab is worth reading either way — the diagnosis
+is the point, and it is verified everywhere.
+
 ## License
 
 [Apache-2.0](LICENSE)

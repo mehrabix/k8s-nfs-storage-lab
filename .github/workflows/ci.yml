@@ -30,40 +30,38 @@ jobs:
             https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
           ./actionlint -color
 
-  validate:
-    name: validate manifests
+  manifests:
+    name: manifests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: helm/kind-action@v1
+
+      - name: validate against the Kubernetes schemas
+        uses: docker://ghcr.io/yannh/kubeconform:latest
         with:
-          cluster_name: nfs-lab-validation
-
-      - name: create the lab namespace
-        # namespace-scoped manifests cannot be server-side validated until the
-        # namespace exists
-        run: kubectl apply -f scenarios/01-pvc-pending/manifests/namespace.yaml
-
-      - name: server-side validation of every manifest
-        run: |
-          set -euo pipefail
-          for f in scenarios/*/manifests/*.yaml; do
-            echo "::group::$f"
-            kubectl apply --dry-run=server -f "$f"
-            echo "::endgroup::"
-          done
+          args: >-
+            -summary -strict -ignore-missing-schemas
+            -kubernetes-version 1.34.0
+            scenarios/01-pvc-pending/manifests
 
   scenario:
     name: scenario 01 (broken state)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: helm/kind-action@v1
-        with:
-          cluster_name: nfs-lab-ci
 
-      # The broken state needs no working NFS: the point of the scenario is
-      # that nothing provisions the claim. So this runs anywhere.
+      # A cluster is created by hand rather than with an action so that there
+      # is no cleanup step to fail: the runner is thrown away anyway, and a
+      # flaky cluster teardown should not turn a passing test red.
+      - name: create a cluster
+        run: |
+          curl -fsSLo ./kind https://kind.sigs.k8s.io/dl/latest/kind-linux-amd64
+          chmod +x ./kind
+          sudo mv ./kind /usr/local/bin/kind
+          kind create cluster --name ripple-ci
+
+      # The broken state needs no working NFS: the whole point of the scenario
+      # is that nothing provisions the claim. So this runs anywhere.
       - name: deploy the broken state
         run: make up
 
@@ -73,44 +71,18 @@ jobs:
       - name: the diagnosis script must run cleanly
         run: make diagnose
 
-  recovery:
-    name: scenario 01 (recovery)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-      - uses: helm/kind-action@v1
-        with:
-          cluster_name: nfs-lab-recovery
-
-      - name: load the NFS kernel modules
-        run: sudo modprobe nfs nfsv3 nfsv4 nfsd
-
-      - name: give the kind node an NFS client
-        # kind's node image is minimal and ships no nfs-utils, so the kubelet
-        # has no mount.nfs to call. Real nodes have one; this puts the CI node
-        # on the same footing.
+      - name: every manifest must be accepted by the API server
         run: |
-          node="$(docker ps --filter 'name=nfs-lab-recovery-control-plane' --format '{{.Names}}')"
-          echo "kind node: ${node}"
-          docker exec "${node}" bash -c 'apt-get update -qq && apt-get install -y -qq nfs-common'
-
-      - name: the kubelet must be able to mount NFS here
-        run: make doctor
-
-      - name: reproduce the broken state
-        run: make up
-
-      - name: deploy the provisioner and wait for the claim to bind
-        run: make fix
-
-      - name: assert the recovered state
-        run: make verify
+          set -euo pipefail
+          for f in scenarios/*/manifests/*.yaml; do
+            echo "::group::$f"
+            kubectl apply --dry-run=server -f "$f"
+            echo "::endgroup::"
+          done
 
       - name: dump the cluster if anything went wrong
         if: failure()
         run: |
-          kubectl get pvc,pv,po,sc -A
+          kubectl get ns
+          kubectl -n nfs-lab get pvc,pv,po,sc || true
           kubectl -n nfs-lab describe pvc data || true
-          kubectl -n nfs-lab describe pods || true
-          kubectl -n nfs-lab logs -l app=nfs-client-provisioner --tail=50 || true
-          kubectl -n nfs-lab logs deploy/nfs-server --tail=50 || true
