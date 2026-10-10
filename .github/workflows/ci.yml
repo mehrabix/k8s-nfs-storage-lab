@@ -26,9 +26,8 @@ jobs:
 
       - name: lint the workflows
         run: |
-          curl -fsSL -o actionlint.tar.gz \
-            https://github.com/rhysd/actionlint/releases/latest/download/actionlint_linux_amd64.tar.gz
-          tar xzf actionlint.tar.gz actionlint
+          bash <(curl -fsSL \
+            https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
           ./actionlint -color
 
   validate:
@@ -39,6 +38,11 @@ jobs:
       - uses: helm/kind-action@v1
         with:
           cluster_name: nfs-lab-validation
+
+      - name: create the lab namespace
+        # namespace-scoped manifests cannot be server-side validated until the
+        # namespace exists
+        run: kubectl apply -f scenarios/01-pvc-pending/manifests/namespace.yaml
 
       - name: server-side validation of every manifest
         run: |
