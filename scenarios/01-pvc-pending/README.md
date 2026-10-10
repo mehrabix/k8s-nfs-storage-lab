@@ -370,10 +370,36 @@ signature of a kernel-level problem, and the `Output:` line is the real message.
 
 | `Output:` | Means | Fix |
 |---|---|---|
-| `mount.nfs: Resource temporarily unavailable` | the kernel has no NFS client support, so the mount syscall cannot even be attempted — typically the `nfs` module is not loaded on the node's host | `sudo modprobe nfs nfsv3 nfsv4 nfsd` on the host, then restart the node if it is a VM |
+| `mount.nfs: Resource temporarily unavailable` | the node cannot mount NFS — either the kernel has no NFS client support, or the node's `nfs-utils` cannot talk to its kernel | see the note below; start with `sudo modprobe nfs nfsv3 nfsv4 nfsd` on the host |
+| `mount.nfs: failed to apply fstab options` | the node's `mount.nfs` failed before reaching any server — the userspace/kernel mismatch, seen when running the mount by hand on the node | fix the node image; no manifest change helps |
 | `mount.nfs: Connection timed out` | the server is unreachable: wrong name, wrong port, NetworkPolicy, or the server pod is not listening | check the Service, `kubectl -n nfs-lab get endpoints nfs-server`, and the server's own logs |
 | `mount.nfs: access denied by server while mounting` | the server refused this client: `/etc/exports` does not permit it | fix the export's client list (`PERMITTED`) |
 | `mount.nfs: No such file or directory` | the export path does not exist on the server (very common with `fsid=0`, where the path must be `/`) | use `/` for a v4 export with `fsid=0` |
+
+### The trap inside that first row
+
+`Resource temporarily unavailable` has two causes, and the obvious way to test
+for it gives the wrong answer.
+
+A privileged Pod can mount NFS while the kubelet still cannot — the Pod ships
+its own `mount.nfs` inside its image, and the kubelet uses the node's. So this
+looks like a working cluster:
+
+```console
+$ kubectl run p --rm -i --restart=never --image=itsthenetwork/nfs-server-alpine:12 \
+    --overrides='...privileged...' -- sh -c 'mount -t nfs nfs-server.nfs-lab.svc.cluster.local:/ /m && echo MOUNT OK'
+MOUNT OK                       # <- proves nothing
+```
+
+while every NFS volume in the cluster stays unmounted. **Validate the kubelet's
+path, not a Pod's:**
+
+```bash
+make doctor
+```
+
+If it reports that the kubelet cannot mount NFS while the kernel is fine, the
+node's userspace is the problem, and no manifest you write will fix it.
 
 To reproduce the unreachable-server variant deliberately:
 

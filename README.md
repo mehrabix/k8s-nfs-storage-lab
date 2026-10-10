@@ -44,14 +44,25 @@ lab is that `Pending` is a symptom, not a diagnosis.
 | **NFS client + server modules in the host kernel** | see below — this is the one that bites |
 
 NFS is not implemented inside Kubernetes. It is a kernel filesystem. The
-kubelet asks the kernel to mount a share, and if the kernel has no NFS
-support, the mount fails and you get a **kubelet** error, not an application
-error. That is the single most confusing thing about this scenario, so the lab
-starts by checking it:
+kubelet asks the kernel to mount a share, and if the node cannot, the mount
+fails and you get a **kubelet** error, not an application error. That is the
+single most confusing thing about this scenario, so the lab starts by checking
+it:
 
 ```bash
 make doctor
 ```
+
+Two separate things have to work, and **`make doctor` checks the second one**:
+
+1. the **kernel** must support NFS;
+2. the **node's userspace** (`mount.nfs`, from `nfs-utils`) must be able to talk
+   to that kernel.
+
+A privileged Pod can mount NFS while the kubelet cannot — the Pod brings its
+own `mount.nfs` from its image, the kubelet uses the node's. So a successful
+mount in a debug Pod proves nothing. The check above mounts the way the kubelet
+does, because that is the only path that matters.
 
 If the check fails, load the modules **on the host** (not in Kubernetes):
 
@@ -72,6 +83,11 @@ Notes for the common local setups:
   matters. `nfsd` is usually auto-loaded when the server pod starts.
 - **WSL2** — the kernel Microsoft ships does include NFS, but Docker Desktop's
   VM is what really needs it. If mounts fail there, use a Linux host or a VM.
+
+If the kernel is fine and mounts still fail, the node's `nfs-utils` is the
+suspect. Recreate the node (`minikube delete && minikube start`) or run the lab
+somewhere with a matching kernel and userspace. See
+[docs/nfs-in-kubernetes.md](docs/nfs-in-kubernetes.md#it-is-not-only-the-kernel-the-kubelets-userspace-matters-too).
 
 ## Quick start
 

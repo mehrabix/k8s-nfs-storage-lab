@@ -74,9 +74,37 @@ failure code; **the `Output:` line below it is the actual reason.** Without the
 `Output:` line you know nothing yet.
 
 ### `Output: mount.nfs: Resource temporarily unavailable`
-The kernel has no NFS client support, so the mount syscall cannot be attempted.
-**Fix on the host, not in Kubernetes:** `sudo modprobe nfs nfsv3 nfsv4 nfsd`.
-Observed in this lab when the module was not loaded.
+The **node** could not mount NFS. Two very different causes produce this same
+string, so test before you change any YAML:
+
+1. the kernel has no NFS client support — fix with
+   `sudo modprobe nfs nfsv3 nfsv4 nfsd` on the host, or
+2. the node's userspace NFS stack is incompatible with its kernel: the module
+   is loaded, `grep -w nfs /proc/filesystems` succeeds, and `mount.nfs` still
+   fails.
+
+**How to tell them apart** — mount from the node and from a privileged Pod
+separately, because they use different userspace:
+
+```bash
+# the path the kubelet actually uses
+minikube ssh -p <profile> -- 'sudo mount -t nfs <server>:/ /mnt'
+
+# a privileged Pod brings its own mount.nfs from its image
+kubectl run p --rm -i --restart=Never --image=itsthenetwork/nfs-server-alpine:12 \
+  --overrides='{"spec":{"containers":[{"name":"p","securityContext":{"privileged":true},
+  "command":["sh","-c","mkdir -p /m && mount -t nfs <server>:/ /m"]}]}}'
+```
+
+**If the Pod succeeds and the node fails, that is the diagnosis.** A Pod brings
+its own `mount.nfs`; the kubelet uses the node's. **A privileged Pod that can
+mount NFS is not proof that your cluster can** — check the kubelet's path with
+`make doctor`. Fix the node image, not the manifests.
+
+### `Output: mount.nfs: failed to apply fstab options`
+The node's `mount.nfs` failed before it even talked to a server — the same
+userspace/kernel mismatch, seen when running the mount by hand on the node. No
+manifest change fixes this.
 
 ### `Output: mount.nfs: Connection timed out`
 The server did not answer. Wrong hostname, wrong port, a Service with no

@@ -60,6 +60,46 @@ echo -e 'nfs\nnfsv3\nnfsv4\nnfsd' | sudo tee /etc/modules-load.d/nfs.conf
 
 `make doctor` checks this for you before you waste time debugging YAML.
 
+### It is not only the kernel: the kubelet's userspace matters too
+
+There is a second way for exactly the same error to appear, and it is worse
+because the kernel looks fine:
+
+```
+$ grep -w nfs /proc/filesystems      # the kernel is ready
+nodev   nfs
+
+$ kubectl -n nfs-lab describe pod ... | grep Output
+  Output: mount.nfs: Resource temporarily unavailable
+```
+
+Running the mount by hand on the node gives an even plainer message:
+
+```console
+$ minikube ssh -p lab -- 'sudo mount -t nfs <server>:/ /mnt'
+mount.nfs: failed to apply fstab options
+```
+
+Now test the same thing from inside a privileged Pod — and it succeeds:
+
+```console
+$ kubectl run p --rm -i --restart=Never --image=itsthenetwork/nfs-server-alpine:12 \
+    --overrides='...privileged...' -- sh -c 'mount -t nfs <server>:/ /m && echo MOUNT OK'
+MOUNT OK
+```
+
+**That difference is the whole point: a Pod brings its own `mount.nfs` from its
+image, while the kubelet uses the one the node ships.** When they disagree, the
+kubelet loses and every NFS volume in the cluster stays unmounted — while your
+clever privileged debug Pod tells you everything is fine.
+
+Seen most often on a minikube `docker` node whose image ships an older
+`nfs-utils` than the host kernel expects. The fixes are environmental:
+recreate the node, or run the lab on a node with a working `nfs-utils`.
+
+**Practical rule: never validate NFS support with a privileged Pod.** Validate
+it with something the kubelet mounts — which is what `make doctor` does.
+
 Two asymmetries worth knowing:
 
 - The **`nfsd`** module (server side) is often auto-loaded when a privileged
