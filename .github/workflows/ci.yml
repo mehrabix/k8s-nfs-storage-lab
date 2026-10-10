@@ -72,3 +72,36 @@ jobs:
 
       - name: the diagnosis script must run cleanly
         run: make diagnose
+
+  recovery:
+    name: scenario 01 (recovery)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: helm/kind-action@v1
+        with:
+          cluster_name: nfs-lab-recovery
+
+      - name: load the NFS kernel modules
+        run: sudo modprobe nfs nfsv3 nfsv4 nfsd
+
+      - name: the kubelet must be able to mount NFS here
+        run: make doctor
+
+      - name: reproduce the broken state
+        run: make up
+
+      - name: deploy the provisioner and wait for the claim to bind
+        run: make fix
+
+      - name: assert the recovered state
+        run: make verify
+
+      - name: dump the cluster if anything went wrong
+        if: failure()
+        run: |
+          kubectl get pvc,pv,po,sc -A
+          kubectl -n nfs-lab describe pvc data || true
+          kubectl -n nfs-lab describe pods || true
+          kubectl -n nfs-lab logs -l app=nfs-client-provisioner --tail=50 || true
+          kubectl -n nfs-lab logs deploy/nfs-server --tail=50 || true
