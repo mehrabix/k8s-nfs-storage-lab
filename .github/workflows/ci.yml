@@ -1,0 +1,70 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: install shellcheck
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends shellcheck
+
+      - name: lint the scripts
+        run: shellcheck -S warning scripts/*.sh scenarios/*/*.sh
+
+      - name: lint the workflows
+        run: |
+          curl -fsSL -o actionlint.tar.gz \
+            https://github.com/rhysd/actionlint/releases/latest/download/actionlint_linux_amd64.tar.gz
+          tar xzf actionlint.tar.gz actionlint
+          ./actionlint -color
+
+  validate:
+    name: validate manifests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: helm/kind-action@v1
+        with:
+          cluster_name: nfs-lab-validation
+
+      - name: server-side validation of every manifest
+        run: |
+          set -euo pipefail
+          for f in scenarios/*/manifests/*.yaml; do
+            echo "::group::$f"
+            kubectl apply --dry-run=server -f "$f"
+            echo "::endgroup::"
+          done
+
+  scenario:
+    name: scenario 01 (broken state)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: helm/kind-action@v1
+        with:
+          cluster_name: nfs-lab-ci
+
+      # The broken state needs no working NFS: the point of the scenario is
+      # that nothing provisions the claim. So this runs anywhere.
+      - name: deploy the broken state
+        run: make up
+
+      - name: assert the broken state
+        run: make verify-broken
+
+      - name: the diagnosis script must run cleanly
+        run: make diagnose

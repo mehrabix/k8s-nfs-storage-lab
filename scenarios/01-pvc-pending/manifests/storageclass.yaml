@@ -1,0 +1,30 @@
+# The StorageClass the PVC asks for.
+#
+# `provisioner` is the single most important field here: it is the name of the
+# external provisioner that Kubernetes expects to create the PersistentVolume.
+# If no Deployment in the cluster registers that name, a claim using this class
+# stays Pending forever, and it does so *silently* - no events are emitted,
+# because the volume controller has nothing to talk to.
+#
+# The name must match the provisioner's --provisioner flag exactly.
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: nfs-client
+  labels:
+    app.kubernetes.io/part-of: nfs-storage-lab
+provisioner: k8s-sigs.io/nfs-subdir-external-provisioner
+parameters:
+  # keep the directory when a claim is deleted, so you can inspect it afterwards
+  archiveOnDelete: "true"
+  pathPattern: "${.PVC.namespace}-${.PVC.name}"
+reclaimPolicy: Delete
+# Immediate means "provision as soon as the PVC appears", so a missing
+# provisioner shows up as an obvious, immediate Pending.
+# WaitForFirstConsumer would delay it until a Pod is scheduled - which is a
+# legitimate reason for Pending and a classic red herring.
+volumeBindingMode: Immediate
+mountOptions:
+  # The in-cluster server serves NFSv4 only, so the client must be told.
+  - nfsvers=4.1

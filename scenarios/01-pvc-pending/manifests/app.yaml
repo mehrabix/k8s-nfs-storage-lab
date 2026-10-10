@@ -1,0 +1,40 @@
+# A workload that proves the claim works: it appends a line to the shared
+# volume every few seconds. Once the PVC is Bound this pod goes Running and the
+# file appears on the NFS server.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: writer
+  namespace: nfs-lab
+  labels:
+    app: writer
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: writer
+  template:
+    metadata:
+      labels:
+        app: writer
+    spec:
+      containers:
+        - name: writer
+          image: busybox:1.37
+          command:
+            - sh
+            - -c
+            - |
+              echo "writer started at $(date)"
+              while true; do
+                date >> /data/heartbeat
+                echo "wrote $(date)"
+                sleep 10
+              done
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: data

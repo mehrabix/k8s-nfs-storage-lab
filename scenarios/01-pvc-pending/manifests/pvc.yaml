@@ -1,0 +1,18 @@
+# The claim that never gets satisfied until the provisioner exists.
+#
+# ReadWriteMany is what NFS is actually good at: several pods writing to the
+# same share straight away. Most cloud block storage cannot do it.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: data
+  namespace: nfs-lab
+  labels:
+    app.kubernetes.io/part-of: nfs-storage-lab
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: nfs-client
+  resources:
+    requests:
+      storage: 1Gi

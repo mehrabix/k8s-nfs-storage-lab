@@ -1,0 +1,63 @@
+# Part 2 of the scenario: the provisioner exists but points at a server that
+# does not answer.
+#
+# The PVC is still Pending, and the provisioner pod never even starts, because
+# the kubelet cannot mount its own NFS volume:
+#
+#   MountVolume.SetUp failed for volume "nfs-client-root"
+#     : mount failed: exit status 32
+#     Mounting command: mount
+#     Mounting arguments: -t nfs -o nfsvers=4.1 <server>:/ /var/lib/kubelet/...
+#     Output: mount.nfs: Connection timed out
+#
+# Apply this instead of provisioner.yaml to reproduce it:
+#   kubectl apply -f manifests/provisioner-wrong-server.yaml
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: nfs-client-provisioner
+  namespace: nfs-lab
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nfs-client-provisioner
+  namespace: nfs-lab
+  labels:
+    app: nfs-client-provisioner
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: nfs-client-provisioner
+  template:
+    metadata:
+      labels:
+        app: nfs-client-provisioner
+    spec:
+      serviceAccountName: nfs-client-provisioner
+      containers:
+        - name: nfs-client-provisioner
+          image: registry.k8s.io/sig-storage/nfs-subdir-external-provisioner:v4.0.2
+          args:
+            - --provisioner=k8s-sigs.io/nfs-subdir-external-provisioner
+            - --leader-election
+          env:
+            # a name that does not resolve: nfs-server-wrong does not exist
+            - name: NFS_SERVER
+              value: nfs-server-wrong.nfs-lab.svc.cluster.local
+            - name: NFS_PATH
+              value: /
+          securityContext:
+            privileged: true
+          volumeMounts:
+            - name: nfs-client-root
+              mountPath: /persistentvolumes
+      volumes:
+        - name: nfs-client-root
+          nfs:
+            server: nfs-server-wrong.nfs-lab.svc.cluster.local
+            path: /

@@ -1,0 +1,11 @@
+# local state
+*.log
+/tmp/
+
+# editors
+.idea/
+.vscode/
+*.swp
+
+# os
+.DS_Store

@@ -1,0 +1,75 @@
+# A single-replica NFSv4 server running inside the cluster.
+#
+# This exists so the lab is self-contained: you get a real NFS server without
+# needing a NAS, a cloud file share or a second VM.
+#
+# Notes that matter:
+#   * it needs `privileged: true` because it runs rpc.nfsd in the container
+#   * it serves NFSv4 only (`--no-nfs-version 2 --no-nfs-version 3`), so clients
+#     must mount with nfsvers=4
+#   * /etc/exports uses fsid=0, which makes the export the root of the NFSv4
+#     pseudo-filesystem: a client mounts <server>:/ and lands in the share
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nfs-server
+  namespace: nfs-lab
+  labels:
+    app: nfs-server
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: nfs-server
+  template:
+    metadata:
+      labels:
+        app: nfs-server
+    spec:
+      containers:
+        - name: nfs-server
+          image: itsthenetwork/nfs-server-alpine:12
+          env:
+            - name: SHARED_DIRECTORY
+              value: /nfsshare
+          ports:
+            - name: nfs
+              containerPort: 2049
+            - name: rpcbind
+              containerPort: 111
+          securityContext:
+            privileged: true
+          readinessProbe:
+            tcpSocket:
+              port: 2049
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          volumeMounts:
+            - name: export
+              mountPath: /nfsshare
+      volumes:
+        # emptyDir means the exported data lives as long as the server pod.
+        # Swap this for a hostPath or a PVC if you want the data to survive.
+        - name: export
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nfs-server
+  namespace: nfs-lab
+  labels:
+    app: nfs-server
+spec:
+  selector:
+    app: nfs-server
+  ports:
+    - name: nfs
+      port: 2049
+      targetPort: 2049
+    - name: rpcbind
+      port: 111
+      targetPort: 111
